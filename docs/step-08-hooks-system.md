@@ -112,6 +112,194 @@ class HookRegistry:
 3. **`before_tool` 返回值阻断**（像 s04）—— 而不是改 context（像 nanobot）
 4. **错误隔离**（像 nanobot）—— 一个 hook 崩溃不影响其他
 
+---
+
+## 通俗解释：设计差异逐条拆解
+
+> 上面那个对比表太干了，这里用大白话+例子讲清楚每一条。
+
+### 1. 「事件机制」：字符串 vs 类方法
+
+**s04 的方式 —— 事件字符串：**
+
+```python
+# 注册时说 "我要监听 PreToolUse 这个事件"
+register_hook("PreToolUse", my_function)
+
+# 触发时根据事件名找到回调
+def trigger_hooks(event, *args):
+    for cb in HOOKS[event]:
+        cb(*args)
+```
+
+像**广播电台** —— 注册时说"我要听 FM 100.8"，触发时说"FM 100.8 发信号了"。
+问题是：事件名是字符串，打错字了也不会报错 —— `"PreToolUes"` 静默不生效。
+
+**nanobot 和我们的方式 —— 类方法：**
+
+```python
+class MyHook(Hook):
+    def before_tool(self, name, args):  # ← 这是方法名，不是字符串
+        ...
+
+# 触发时直接调方法
+for hook in hooks:
+    hook.before_tool(name, args)  # ← IDE 能自动补全
+```
+
+像**对讲机** —— 你直接跟对方说"准备执行工具了"。
+好处：方法名拼错了 IDE 立刻红线报错，不会静默失效。
+
+### 2. 「注册方式」：全局 dict vs Composite 模式
+
+**s04 —— 全局字典：**
+
+```python
+HOOKS = {"PreToolUse": [], "PostToolUse": []}   # 全局变量
+
+def register_hook(event, callback):
+    HOOKS[event].append(callback)  # 往全局变量里塞
+```
+
+问题：全局变量到处都能改，你不知道谁往里面加了什么。测试也不方便 —— 上一个测试注册的 hook 会影响下一个测试。
+
+**nanobot —— Composite 模式：**
+
+```python
+# Composite 就是"打包成一串"的意思
+hooks = CompositeHook([LogHook(), PermissionHook()])
+
+# AgentLoop 只认这一个 hooks 变量
+loop = AgentLoop(hooks=hooks)
+```
+
+像**排插** —— 你把所有插头（hook）插到一个排插上，然后只把这个排插递给 AgentLoop。
+好处：没有全局变量，每个 loop 实例有自己的 hooks，互不干扰。
+
+### 3. 「阻断」：return str vs 改 context
+
+这是 s04 和我们 vs nanobot 的最大区别。
+
+**s04 和我们 —— 返回字符串=阻断：**
+
+```python
+class PermissionHook(Hook):
+    def before_tool(self, name, args):
+        if name == "bash" and "rm -rf" in args.get("command", ""):
+            return "权限拒绝: 危险命令"  # ← 返回非 None = 阻断
+        return None  # ← 返回 None = 放行
+```
+
+简单直接：hook 说「我不同意」，循环就听它的。
+
+**nanobot —— 改 context：**
+
+```python
+async def before_execute_tools(self, context: AgentHookContext):
+    for call in context.tool_calls:
+        if call.name == "bash" and "rm -rf" in call.args.get("command", ""):
+            context.tool_results.append("权限拒绝")  # ← 往上下文里塞结果
+            context.tool_calls.remove(call)  # ← 从待执行列表移除
+```
+
+不直接说「我阻断」，而是**修改共享的数据对象**（context）：把某个 tool_call 从「待执行」改成「已拒绝」。
+
+为什么 nanobot 要这么复杂？
+因为 nanobot 要处理**异步并发** —— 多个 hook 可能同时修改 context，return 这种同步方式不够灵活。我们的场景简单，return 就够用了。
+
+> 类比：s04 的方式像**保安拦住人** —— "你不能进"。nanobot 的方式像**在考勤表上改记录** —— 把人从「未签到」改成「已请假」。
+
+### 4. 「错误隔离」：一个挂了，其他的还跑不跑？
+
+想象你有两个 hook：
+
+```python
+hooks.register(ErrorHook())   # 这个会抛异常
+hooks.register(LogHook())     # 这个要记录日志
+```
+
+**没有错误隔离（s04 的方式）：**
+
+```python
+def trigger_hooks(event, *args):
+    for cb in HOOKS[event]:
+        cb(*args)  # ErrorHook 抛异常 → 整个循环崩溃 → LogHook 没机会执行
+```
+
+ErrorHook 一炸，LogHook 也跟着遭殃。
+
+**有错误隔离（nanobot 和我们的方式）：**
+
+```python
+def before_tool(self, name, args):
+    for hook in self._hooks:
+        try:
+            result = hook.before_tool(name, args)
+        except Exception:
+            logger.exception("hook 出错了")  # 记个日志，继续跑下一个
+            continue
+```
+
+ErrorHook 炸了 → 记日志 → 跳过它 → LogHook 正常运行。
+
+### 5. 「上下文」：参数散落 vs 统一对象
+
+**s04 —— 参数散落：**
+
+```python
+# 不同事件传不同参数，hook 函数签名不统一
+trigger_hooks("PreToolUse", block)           # 传一个 block
+trigger_hooks("PostToolUse", block, output)   # 传 block + output
+trigger_hooks("UserPromptSubmit", query)      # 传字符串
+```
+
+你的 hook 函数得记住每个事件传几个参数、是什么类型。
+
+**nanobot —— 统一 `AgentHookContext`：**
+
+```python
+# 所有事件都传同一个对象
+async def before_iteration(self, context: AgentHookContext):
+    print(context.messages)       # 消息列表
+    print(context.iteration)      # 第几轮
+    print(context.tool_calls)     # 待执行的工具
+
+async def after_iteration(self, context: AgentHookContext):
+    print(context.tool_results)   # 执行结果
+    print(context.stop_reason)    # 为什么停止
+```
+
+好处：你不需要记每个方法传什么参数 —— context 里什么都有。想加新信息只需要往 context 加字段，不需要改所有 hook 的方法签名。
+
+### 6. 「异步」：sync vs async
+
+```python
+# s04: 同步 —— 顺序执行
+result = callback(*args)  # 这个跑完才跑下一个
+
+# nanobot: 异步 —— 可以同时跑多个
+await asyncio.gather(hook1.before_tool(...), hook2.before_tool(...))
+```
+
+对于 learn-cc（本地 REPL 工具），同步足够了。nanobot 要同时服务多个聊天渠道（Telegram、Discord、Web…），异步是刚需。
+
+---
+
+## 我们的设计选择
+
+综合以上，我们的取舍：
+
+| 设计点 | 选择 | 为什么 |
+|--------|------|--------|
+| 事件标识 | 类方法（像 nanobot） | IDE 补全，防手误 |
+| 注册 | Composite（像 nanobot） | 无全局变量，可测试 |
+| 阻断 | return str（像 s04） | 简单够用 |
+| 错误隔离 | try/except（像 nanobot） | 防止一个 hook 坏了整个系统 |
+| 上下文 | 方法参数（像 s04） | 我们方法少，不需要统一 context |
+| 异步 | sync（像 s04） | 本地工具不需要 async |
+
+---
+
 ## 测试策略
 
 | 测试 | 方法 |
