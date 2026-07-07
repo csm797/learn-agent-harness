@@ -97,6 +97,67 @@ class TestConfigLoad:
 
         assert str(config.workdir) in config.system_prompt
 
+    def test_custom_deny_patterns(self, monkeypatch):
+        """PERMISSION_DENY_PATTERNS 应该被解析为 tuple。"""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("MODEL_ID", "claude-test")
+        monkeypatch.setenv("PERMISSION_DENY_PATTERNS", r"\bshutdown\b;\breboot\b")
+
+        config = Config.load(env_file=None)
+
+        assert len(config.deny_patterns) == 2
+        assert r"\bshutdown\b" in config.deny_patterns
+        assert r"\breboot\b" in config.deny_patterns
+
+    def test_custom_allow_patterns(self, monkeypatch):
+        """PERMISSION_ALLOW_PATTERNS 应该被解析为 tuple。"""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("MODEL_ID", "claude-test")
+        monkeypatch.setenv("PERMISSION_ALLOW_PATTERNS", "echo;ls;git status")
+
+        config = Config.load(env_file=None)
+
+        assert len(config.allow_patterns) == 3
+        assert "echo" in config.allow_patterns
+        assert "ls" in config.allow_patterns
+
+    def test_permission_from_config(self, monkeypatch):
+        """from_config 应该使用 Config 中的 patterns。"""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("MODEL_ID", "claude-test")
+        monkeypatch.setenv("PERMISSION_DENY_PATTERNS", r"\bcurl\s+")
+        monkeypatch.setenv("PERMISSION_ALLOW_PATTERNS", r"curl\s+http://internal")
+
+        from learn_cc.permission import PermissionChecker
+
+        config = Config.load(env_file=None)
+        checker = PermissionChecker.from_config(config)
+
+        # allowlist 模式：curl internal 放行
+        from learn_cc.permission import Decision, PathPolicy
+        policy = PathPolicy(workdir=config.workdir)
+        result = checker.check("bash", {"command": "curl http://internal/api"}, policy)
+        assert result.decision == Decision.ALLOW
+
+        # 不匹配 allow 的 curl 应该拦截
+        result2 = checker.check("bash", {"command": "curl http://evil.com"}, policy)
+        assert result2.decision == Decision.DENY
+
+    def test_permission_defaults_when_not_set(self, monkeypatch):
+        """不设置 PERMISSION_* 时，from_config 应该使用代码默认值。"""
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("MODEL_ID", "claude-test")
+        monkeypatch.delenv("PERMISSION_DENY_PATTERNS", raising=False)
+        monkeypatch.delenv("PERMISSION_ALLOW_PATTERNS", raising=False)
+
+        from learn_cc.permission import DEFAULT_DENY_PATTERNS, PermissionChecker
+
+        config = Config.load(env_file=None)
+        checker = PermissionChecker.from_config(config)
+
+        assert checker.deny_patterns == DEFAULT_DENY_PATTERNS
+        assert checker.allow_patterns == []
+
     def test_load_from_env_file(self, tmp_path, monkeypatch):
         """应该能从 .env 文件读取配置。"""
         env_file = tmp_path / ".env"

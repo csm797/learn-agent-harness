@@ -67,9 +67,9 @@ def main(argv: list[str] | None = None) -> None:
             system_prompt=config.system_prompt,
         )
 
-    # 初始化
+    # 初始化（权限从 Config 读取）
     registry = ToolRegistry.create_default()
-    permission = PermissionChecker()
+    permission = PermissionChecker.from_config(config)
     loop = AgentLoop(config, registry, verbose=not args.quiet, permission=permission)
 
     # REPL

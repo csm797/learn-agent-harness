@@ -16,7 +16,10 @@ import re
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import TYPE_CHECKING, Callable, Sequence
+
+if TYPE_CHECKING:
+    from learn_cc.config import Config
 
 
 # ── 路径策略 ──────────────────────────────────────────────
@@ -159,6 +162,19 @@ class PermissionChecker:
         self.deny_patterns = deny_patterns if deny_patterns is not None else DEFAULT_DENY_PATTERNS
         self.allow_patterns = allow_patterns or []
         self.rules = rules if rules is not None else DEFAULT_RULES
+
+    @classmethod
+    def from_config(cls, config: Config) -> PermissionChecker:
+        """
+        从应用配置创建权限检查器。
+
+        Config 中的 deny_patterns / allow_patterns 会覆盖代码默认值。
+        Config 中未设置时使用代码默认值。
+        """
+        return cls(
+            deny_patterns=list(config.deny_patterns) if config.deny_patterns else None,
+            allow_patterns=list(config.allow_patterns) if config.allow_patterns else None,
+        )
 
     def check(
         self,

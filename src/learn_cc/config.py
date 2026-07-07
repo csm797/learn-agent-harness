@@ -42,6 +42,12 @@ class Config:
     system_prompt: str
     """系统提示词。"""
 
+    deny_patterns: tuple[str, ...] = ()
+    """权限系统：自定义 deny 正则列表（逗号分隔）。空=用代码默认值。"""
+
+    allow_patterns: tuple[str, ...] = ()
+    """权限系统：自定义 allow 正则列表。非空时启用白名单模式。"""
+
     @classmethod
     def load(cls, env_file: str = ".env") -> Config:
         """
@@ -85,10 +91,25 @@ class Config:
             f"Use tools to solve tasks. Act, don't explain."
         )
 
+        # 权限配置（分号分隔的正则列表）
+        # 例子: PERMISSION_DENY_PATTERNS="\brm\s+-[rf]{1,2}\b;\bshutdown\b"
+        deny_raw = os.getenv("PERMISSION_DENY_PATTERNS")
+        allow_raw = os.getenv("PERMISSION_ALLOW_PATTERNS")
+
+        deny_patterns: tuple[str, ...] = ()
+        allow_patterns: tuple[str, ...] = ()
+
+        if deny_raw:
+            deny_patterns = tuple(p.strip() for p in deny_raw.split(";") if p.strip())
+        if allow_raw:
+            allow_patterns = tuple(p.strip() for p in allow_raw.split(";") if p.strip())
+
         return cls(
             api_key=api_key,
             base_url=base_url or None,
             model=model,
             workdir=workdir,
             system_prompt=system_prompt,
+            deny_patterns=deny_patterns,
+            allow_patterns=allow_patterns,
         )
