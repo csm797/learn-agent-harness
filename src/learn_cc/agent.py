@@ -13,6 +13,7 @@ from anthropic import Anthropic
 from anthropic.types import Message
 
 from learn_cc.config import Config
+from learn_cc.permission import PathPolicy
 from learn_cc.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -116,8 +117,9 @@ class AgentLoop:
 
             # 权限检查（如果启用了）
             if self.permission is not None:
+                policy = PathPolicy(workdir=self.config.workdir)
                 perm_result = self.permission.check(
-                    block.name, block.input, self.config.workdir,
+                    block.name, block.input, policy,
                 )
                 if perm_result.decision.name == "DENY":
                     output = f"权限拒绝: {perm_result.reason}"

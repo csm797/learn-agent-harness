@@ -2,9 +2,45 @@
 
 from pathlib import Path
 
-import pytest
+from learn_cc.tools.bash import _check_deny, run_bash
 
-from learn_cc.tools.bash import run_bash
+
+class TestCheckDeny:
+    """正则 deny 检查的单元测试。"""
+
+    def test_deny_rm_rf(self):
+        """rm -rf / 应该被拦截。"""
+        result = _check_deny("rm -rf /", deny_patterns=[r"\brm\s+-[rf]{1,2}\b"], allow_patterns=[])
+        assert result is not None
+
+    def test_deny_rm_fr(self):
+        """rm -fr / 变体也应该被拦截。"""
+        result = _check_deny("rm -fr /etc", deny_patterns=[r"\brm\s+-[rf]{1,2}\b"], allow_patterns=[])
+        assert result is not None
+
+    def test_allow_safe_rm(self):
+        """单纯 'rm file' 没有 -rf 标志，应该通过。"""
+        result = _check_deny("rm file.txt", deny_patterns=[r"\brm\s+-[rf]{1,2}\b"], allow_patterns=[])
+        assert result is None
+
+    def test_allowlist_overrides_deny(self):
+        """allow_patterns 非空时，匹配 allow 的通过。"""
+        result = _check_deny(
+            "rm -rf /build/cache",
+            deny_patterns=[r"\brm\s+-[rf]{1,2}\b"],
+            allow_patterns=[r"rm\s+-rf\s+/build"],
+        )
+        assert result is None
+
+    def test_allowlist_rejects_unlisted(self):
+        """allow_patterns 非空时，不匹配 allow 的拦截。"""
+        result = _check_deny(
+            "rm -rf /etc",
+            deny_patterns=[r"\brm\s+-[rf]{1,2}\b"],
+            allow_patterns=[r"rm\s+-rf\s+/build"],
+        )
+        assert result is not None
+        assert "白名单" in result
 
 
 class TestRunBash:
@@ -15,18 +51,27 @@ class TestRunBash:
 
     def test_dangerous_command_blocked(self, tmp_path):
         """危险命令应该被拦截。"""
-        result = run_bash("sudo rm -rf /", tmp_path)
+        result = run_bash("rm -rf /", tmp_path)
         assert "拦截" in result
 
-    def test_dangerous_command_partial(self, tmp_path):
-        """部分匹配危险模式也应该被拦截。"""
-        result = run_bash("echo sudo something", tmp_path)
+    def test_shutdown_blocked(self, tmp_path):
+        """shutdown 命令应该被拦截。"""
+        result = run_bash("shutdown now", tmp_path)
         assert "拦截" in result
+
+    def test_allowlist_custom(self, tmp_path):
+        """自定义 allowlist 放行特定命令。"""
+        result = run_bash(
+            "rm -rf /build/cache",
+            tmp_path,
+            deny_patterns=[r"\brm\s+-[rf]{1,2}\b"],
+            allow_patterns=[r"rm\s+-rf\s+/build"],
+        )
+        assert "拦截" not in result
 
     def test_nonexistent_command(self, tmp_path):
         """不存在的命令应该返回错误。"""
         result = run_bash("nonexistent_command_xyz123", tmp_path)
-        # Windows: "not recognized", Linux: "not found", 中文: "错误"
         assert any(kw in result.lower() for kw in ["错误", "not recognized", "not found"])
 
     def test_output_truncated(self, tmp_path):

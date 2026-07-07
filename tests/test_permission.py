@@ -1,4 +1,4 @@
-"""测试三关卡权限系统。"""
+"""测试安全体系：PathPolicy + 三关卡权限。"""
 
 from pathlib import Path
 
@@ -6,9 +6,61 @@ import pytest
 
 from learn_cc.permission import (
     Decision,
+    PathPolicy,
     PermissionChecker,
     PermissionResult,
+    _PathEscapeError,
 )
+
+
+# ── PathPolicy 测试 ────────────────────────────────────
+
+
+class TestPathPolicy:
+    def test_resolve_read_within_workdir(self, tmp_path):
+        """读取 workdir 内的文件应该允许。"""
+        policy = PathPolicy(workdir=tmp_path)
+        result = policy.resolve_read("sub/file.txt")
+        assert result == (tmp_path / "sub/file.txt").resolve()
+
+    def test_resolve_read_outside_denied(self, tmp_path):
+        """读取 workdir 外的文件应该拒绝。"""
+        policy = PathPolicy(workdir=tmp_path)
+        with pytest.raises(_PathEscapeError):
+            policy.resolve_read("../outside.txt")
+
+    def test_resolve_read_extra_allowed(self, tmp_path):
+        """extra_read_only 内的路径允许读取。"""
+        extra = tmp_path / "media"
+        extra.mkdir()
+        policy = PathPolicy(workdir=tmp_path, extra_read_only=[extra])
+        result = policy.resolve_read(str(extra / "image.png"))
+        assert result == (extra / "image.png").resolve()
+
+    def test_resolve_write_outside_denied(self, tmp_path):
+        """写入 workdir 外应该拒绝。"""
+        policy = PathPolicy(workdir=tmp_path)
+        with pytest.raises(_PathEscapeError):
+            policy.resolve_write("../malicious.txt")
+
+    def test_resolve_write_extra_writable_allowed(self, tmp_path):
+        """extra_writable 内的路径允许写入。"""
+        out = tmp_path / "output"
+        out.mkdir()
+        policy = PathPolicy(workdir=tmp_path, extra_writable=[out])
+        result = policy.resolve_write(str(out / "result.txt"))
+        assert result == (out / "result.txt").resolve()
+
+    def test_resolve_read_only_not_writable(self, tmp_path):
+        """extra_read_only 中的路径不应可写（路径在 workdir 外时）。"""
+        extra = tmp_path.parent / "media"
+        extra.mkdir(exist_ok=True)
+        policy = PathPolicy(workdir=tmp_path, extra_read_only=[extra])
+        with pytest.raises(_PathEscapeError):
+            policy.resolve_write(str(extra / "hack.txt"))
+
+
+# ── PermissionResult 测试 ──────────────────────────────
 
 
 class TestPermissionResult:
@@ -18,9 +70,9 @@ class TestPermissionResult:
         assert r.reason is None
 
     def test_deny(self):
-        r = PermissionResult.deny("bad")
+        r = PermissionResult.deny("blocked")
         assert r.decision == Decision.DENY
-        assert r.reason == "bad"
+        assert r.reason == "blocked"
 
     def test_ask(self):
         r = PermissionResult.ask("sure?")
@@ -28,131 +80,142 @@ class TestPermissionResult:
         assert r.reason == "sure?"
 
 
-class TestGate1DenyList:
-    """Gate 1: 硬拒绝列表"""
+# ── Gate 1: 正则 deny 测试 ──────────────────────────────
 
+
+class TestGate1RegexDeny:
     def test_deny_rm_rf(self):
         checker = PermissionChecker()
-        result = checker.check("bash", {"command": "rm -rf /"}, Path("/tmp"))
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "rm -rf /"}, policy)
         assert result.decision == Decision.DENY
 
-    def test_deny_sudo(self):
+    def test_deny_rm_fr_variant(self):
+        """rm -fr 变体也应该拦截。"""
         checker = PermissionChecker()
-        result = checker.check("bash", {"command": "sudo apt install"}, Path("/tmp"))
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "rm -fr /etc"}, policy)
+        assert result.decision == Decision.DENY
+
+    def test_deny_shutdown(self):
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "shutdown -h now"}, policy)
         assert result.decision == Decision.DENY
 
     def test_allow_safe_command(self):
-        """普通命令应该通过 Gate 1。"""
+        """安全命令通过 Gate 1。"""
         checker = PermissionChecker()
-        result = checker.check("bash", {"command": "echo hello"}, Path("/tmp"))
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "echo hello"}, policy)
         assert result.decision != Decision.DENY
 
     def test_deny_only_applies_to_bash(self):
-        """Gate 1 只检查 bash 工具。"""
+        """Gate 1 只检查 bash。"""
         checker = PermissionChecker()
-        result = checker.check("write_file", {"path": "/etc/passwd"}, Path("/tmp"))
-        assert result.decision != Decision.DENY  # 跳过 Gate 1
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("write_file", {"path": "/etc/passwd"}, policy)
+        assert result.decision != Decision.DENY
+
+    def test_allowlist_overrides_deny(self):
+        """allowlist 可以放行被 deny 的命令（通过 Gate 1，且不触发 Gate 2）。"""
+        checker = PermissionChecker(
+            deny_patterns=[r"\bcurl\s+"],
+            allow_patterns=[r"curl\s+http://internal"],
+        )
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "curl http://internal/api"}, policy)
+        assert result.decision == Decision.ALLOW
+
+
+# ── Gate 2: 规则测试 ──────────────────────────────────
 
 
 class TestGate2Rules:
-    """Gate 2: 规则匹配"""
-
-    def test_write_outside_workspace(self, tmp_path):
-        """写入工作目录外应触发 ASK。"""
+    def test_write_outside_asks(self, tmp_path):
+        """写入外部路径应触发 ASK。"""
         checker = PermissionChecker()
-        result = checker.check(
-            "write_file", {"path": "../outside.txt", "content": "x"}, tmp_path,
-        )
+        policy = PathPolicy(workdir=tmp_path)
+        result = checker.check("write_file", {"path": "../outside.txt"}, policy)
         assert result.decision == Decision.ASK
-        assert "写入" in (result.reason or "")
 
-    def test_write_inside_workspace(self, tmp_path):
-        """写入工作目录内应通过 Gate 2。"""
+    def test_write_inside_allowed(self, tmp_path):
+        """写入内部路径应通过。"""
         checker = PermissionChecker()
-        result = checker.check(
-            "write_file", {"path": "safe.txt", "content": "x"}, tmp_path,
-        )
+        policy = PathPolicy(workdir=tmp_path)
+        result = checker.check("write_file", {"path": "safe.txt"}, policy)
         assert result.decision == Decision.ALLOW
 
-    def test_read_outside_workspace(self, tmp_path):
-        """读取外部文件应触发 ASK。"""
+    def test_read_outside_asks(self, tmp_path):
+        """读取外部路径应触发 ASK。"""
         checker = PermissionChecker()
-        result = checker.check("read_file", {"path": "/etc/passwd"}, tmp_path)
+        policy = PathPolicy(workdir=tmp_path)
+        result = checker.check("read_file", {"path": "/etc/passwd"}, policy)
         assert result.decision == Decision.ASK
 
-    def test_destructive_bash(self, tmp_path):
-        """破坏性 bash 命令应触发 ASK。"""
+    def test_destructive_bash_asks(self, tmp_path):
+        """破坏性 bash 应触发 ASK。"""
         checker = PermissionChecker()
-        result = checker.check("bash", {"command": "rm important.txt"}, tmp_path)
-        assert result.decision == Decision.ASK
-        assert "破坏" in (result.reason or "")
-
-    def test_destructive_bash_with_chmod(self, tmp_path):
-        """chmod 777 应触发 ASK。"""
-        checker = PermissionChecker()
-        result = checker.check("bash", {"command": "chmod 777 file"}, tmp_path)
+        policy = PathPolicy(workdir=tmp_path)
+        result = checker.check("bash", {"command": "rm important.txt"}, policy)
         assert result.decision == Decision.ASK
 
     def test_safe_bash_passes_rules(self, tmp_path):
-        """安全命令应通过 Gate 2。"""
+        """安全命令通过 Gate 2。"""
         checker = PermissionChecker()
-        result = checker.check("bash", {"command": "echo hello"}, tmp_path)
+        policy = PathPolicy(workdir=tmp_path)
+        result = checker.check("bash", {"command": "echo hello"}, policy)
         assert result.decision == Decision.ALLOW
 
     def test_glob_always_allowed(self, tmp_path):
-        """glob 不匹配任何规则，应始终 ALLOW。"""
+        """glob 不匹配任何规则。"""
         checker = PermissionChecker()
-        result = checker.check("glob", {"pattern": "*.py"}, tmp_path)
+        policy = PathPolicy(workdir=tmp_path)
+        result = checker.check("glob", {"pattern": "*.py"}, policy)
         assert result.decision == Decision.ALLOW
 
 
-class TestGate3AskUser:
-    """Gate 3: 用户确认"""
+# ── Gate 3: 用户确认测试 ──────────────────────────────
 
+
+class TestGate3AskUser:
     def test_user_allows(self, monkeypatch):
-        """输入 y 表示允许。"""
         monkeypatch.setattr("builtins.input", lambda _: "y")
-        assert PermissionChecker.ask_user("bash", {"command": "rm file"}, "危险") is True
+        assert PermissionChecker.ask_user("bash", {"cmd": "rm file"}, "危险") is True
 
     def test_user_allows_yes(self, monkeypatch):
-        """输入 yes 也表示允许。"""
         monkeypatch.setattr("builtins.input", lambda _: "yes")
-        assert PermissionChecker.ask_user("bash", {"command": "rm file"}, "危险") is True
+        assert PermissionChecker.ask_user("bash", {"cmd": "rm file"}, "危险") is True
 
     def test_user_denies(self, monkeypatch):
-        """输入 n 表示拒绝。"""
         monkeypatch.setattr("builtins.input", lambda _: "n")
-        assert PermissionChecker.ask_user("bash", {"command": "rm file"}, "危险") is False
+        assert PermissionChecker.ask_user("bash", {"cmd": "rm file"}, "危险") is False
 
     def test_user_denies_default(self, monkeypatch):
-        """回车（空输入）默认拒绝。"""
         monkeypatch.setattr("builtins.input", lambda _: "")
-        assert PermissionChecker.ask_user("bash", {"command": "rm file"}, "危险") is False
+        assert PermissionChecker.ask_user("bash", {"cmd": "rm file"}, "危险") is False
 
     def test_user_denies_capital(self, monkeypatch):
-        """大小写不敏感。"""
         monkeypatch.setattr("builtins.input", lambda _: "N")
-        assert PermissionChecker.ask_user("bash", {"command": "rm file"}, "危险") is False
+        assert PermissionChecker.ask_user("bash", {"cmd": "rm file"}, "危险") is False
 
 
-class TestCustomRules:
-    """自定义规则"""
+# ── 自定义配置测试 ────────────────────────────────────
 
+
+class TestCustomConfig:
     def test_custom_deny_list(self):
-        """可以传入自定义拒绝列表。"""
-        checker = PermissionChecker(deny_list=["docker"])
-        result = checker.check("bash", {"command": "docker run"}, Path("/tmp"))
-        assert result.decision == Decision.DENY
-
-        # 默认列表中的 sudo 不再拦截
-        result2 = checker.check("bash", {"command": "sudo echo"}, Path("/tmp"))
-        assert result2.decision != Decision.DENY
+        checker = PermissionChecker(deny_patterns=[r"\bdocker\b"])
+        policy = PathPolicy(workdir=Path("/tmp"))
+        assert checker.check("bash", {"command": "docker run"}, policy).decision == Decision.DENY
+        # 默认列表不再拦截
+        result = checker.check("bash", {"command": "shutdown"}, policy)
+        assert result.decision != Decision.DENY
 
     def test_custom_rules(self):
-        """可以传入自定义规则。"""
         checker = PermissionChecker(rules=[
-            (["bash"], lambda args, wd: "danger" in args.get("command", ""), "自定义规则"),
+            (["bash"], lambda a, p: "danger" in a.get("command", ""), "自定义"),
         ])
-        result = checker.check("bash", {"command": "danger"}, Path("/tmp"))
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "danger"}, policy)
         assert result.decision == Decision.ASK
-        assert "自定义" in (result.reason or "")
