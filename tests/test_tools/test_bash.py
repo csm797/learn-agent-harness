@@ -59,6 +59,21 @@ class TestRunBash:
         result = run_bash("shutdown now", tmp_path)
         assert "拦截" in result
 
+    def test_del_file_blocked(self, tmp_path):
+        """Windows del /f 应该被拦截。"""
+        result = run_bash("del /f important.txt", tmp_path)
+        assert "拦截" in result
+
+    def test_rd_dir_blocked(self, tmp_path):
+        """Windows rd /s 应该被拦截。"""
+        result = run_bash("rd /s /q temp_dir", tmp_path)
+        assert "拦截" in result
+
+    def test_format_disk_blocked(self, tmp_path):
+        """format 命令应该被拦截。"""
+        result = run_bash("format D: /fs:NTFS", tmp_path)
+        assert "拦截" in result
+
     def test_allowlist_custom(self, tmp_path):
         """自定义 allowlist 放行特定命令。"""
         result = run_bash(

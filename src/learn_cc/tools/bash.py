@@ -19,9 +19,11 @@ from typing import Sequence
 # 使用 \b 单词边界防止误匹配
 # 使用 \s+ 处理多个空格/tab
 DENY_PATTERNS: list[str] = [
-    r"\brm\s+-[rf]{1,2}\b",           # rm -r, rm -rf, rm -fr
-    r"\brmdir\s+/s\b",                 # rmdir /s (Windows)
-    r"\b(dd|diskpart|mkfs)\b",         # 磁盘操作
+    r"\brm\s+-[rf]{1,2}\b",           # rm -r, rm -rf, rm -fr (Linux)
+    r"\b(del|erase)\s+/[fq]",          # del /f, del /q (Windows)
+    r"\brd\s+/[s]",                    # rd /s (Windows 删除目录)
+    r"\brmdir\s+/[s]",                 # rmdir /s (Windows)
+    r"\b(dd|diskpart|mkfs|format)\b",  # 磁盘操作
     r">\s*/dev/sd[a-z]",               # 写入磁盘设备
     r"\b(shutdown|reboot|poweroff|halt)\b",  # 系统电源
     r"\bwget\s+",                      # wget 下载

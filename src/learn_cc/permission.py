@@ -104,9 +104,11 @@ class PermissionResult:
 # ── 默认 deny 正则列表（参考 nanobot） ────────────────────
 
 DEFAULT_DENY_PATTERNS: list[str] = [
-    r"\brm\s+-[rf]{1,2}\b",           # rm -r, rm -rf, rm -fr
-    r"\brmdir\s+/s\b",                 # rmdir /s
-    r"\b(dd|diskpart|mkfs)\b",         # 磁盘操作
+    r"\brm\s+-[rf]{1,2}\b",           # rm -r, rm -rf, rm -fr (Linux)
+    r"\b(del|erase)\s+/[fq]",          # del /f, del /q, erase /f (Windows)
+    r"\brd\s+/[s]",                    # rd /s (Windows 删除目录)
+    r"\brmdir\s+/[s]",                 # rmdir /s (Windows)
+    r"\b(dd|diskpart|mkfs|format)\b",  # 磁盘操作 (Linux + Windows)
     r">\s*/dev/sd[a-z]",               # 写入磁盘设备
     r"\b(shutdown|reboot|poweroff|halt)\b",  # 系统电源
 ]
@@ -127,7 +129,11 @@ DEFAULT_RULES: list[Rule] = [
         ["bash"],
         lambda args, policy: any(
             kw in args.get("command", "").lower()
-            for kw in ["rm ", "> /etc/", "chmod 777", "chown "]
+            for kw in [
+                "rm ", "del ", "erase ",     # 删除文件 (Linux + Windows)
+                "rd ", "rmdir ",             # 删除目录
+                "> /etc/", "chmod 777", "chown ",  # 系统权限修改
+            ]
         ),
         "潜在破坏性命令",
     ),

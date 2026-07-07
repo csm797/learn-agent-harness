@@ -103,6 +103,27 @@ class TestGate1RegexDeny:
         result = checker.check("bash", {"command": "shutdown -h now"}, policy)
         assert result.decision == Decision.DENY
 
+    def test_deny_del_file(self):
+        """Windows del 命令应该拦截。"""
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "del /f report.txt"}, policy)
+        assert result.decision == Decision.DENY
+
+    def test_deny_rd_dir(self):
+        """Windows rd 命令应该拦截。"""
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "rd /s temp"}, policy)
+        assert result.decision == Decision.DENY
+
+    def test_deny_format(self):
+        """format 命令应该拦截。"""
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=Path("/tmp"))
+        result = checker.check("bash", {"command": "format D:"}, policy)
+        assert result.decision == Decision.DENY
+
     def test_allow_safe_command(self):
         """安全命令通过 Gate 1。"""
         checker = PermissionChecker()
@@ -158,6 +179,20 @@ class TestGate2Rules:
         checker = PermissionChecker()
         policy = PathPolicy(workdir=tmp_path)
         result = checker.check("bash", {"command": "rm important.txt"}, policy)
+        assert result.decision == Decision.ASK
+
+    def test_del_file_asks(self, tmp_path):
+        """Windows del 也应该触发 ASK（非 /f 标志时）。"""
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=tmp_path)
+        result = checker.check("bash", {"command": "del report.txt"}, policy)
+        assert result.decision == Decision.ASK
+
+    def test_erase_file_asks(self, tmp_path):
+        """Windows erase 也应该触发 ASK。"""
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=tmp_path)
+        result = checker.check("bash", {"command": "erase data.txt"}, policy)
         assert result.decision == Decision.ASK
 
     def test_safe_bash_passes_rules(self, tmp_path):
