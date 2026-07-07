@@ -16,6 +16,7 @@ import sys
 from learn_cc import __version__
 from learn_cc.agent import AgentLoop
 from learn_cc.config import Config, ConfigError
+from learn_cc.permission import PermissionChecker
 from learn_cc.tools.registry import ToolRegistry
 
 
@@ -68,7 +69,8 @@ def main(argv: list[str] | None = None) -> None:
 
     # 初始化
     registry = ToolRegistry.create_default()
-    loop = AgentLoop(config, registry, verbose=not args.quiet)
+    permission = PermissionChecker()
+    loop = AgentLoop(config, registry, verbose=not args.quiet, permission=permission)
 
     # REPL
     print(f"\033[32mlearn-cc v{__version__} — 输入问题，回车发送。输入 q 退出。\033[0m\n")

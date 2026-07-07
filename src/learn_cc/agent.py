@@ -7,11 +7,16 @@ agent — Agent 循环核心。
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from anthropic import Anthropic
 from anthropic.types import Message
 
 from learn_cc.config import Config
 from learn_cc.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from learn_cc.permission import PermissionChecker
 
 
 class AgentLoop:
@@ -35,6 +40,7 @@ class AgentLoop:
         registry: ToolRegistry,
         *,
         verbose: bool = True,
+        permission: PermissionChecker | None = None,
     ):
         """
         初始化 Agent 循环。
@@ -43,10 +49,12 @@ class AgentLoop:
             config: 应用配置（API Key、模型、工作目录……）。
             registry: 工具注册表。
             verbose: 是否在 stdout 打印工具调用日志。
+            permission: 可选的权限检查器。传入后启用三关卡权限系统。
         """
         self.config = config
         self.registry = registry
         self.verbose = verbose
+        self.permission = permission
 
         # 从配置创建 API 客户端
         self.client = Anthropic(
@@ -106,6 +114,38 @@ class AgentLoop:
                 args_summary = str(block.input)[:100]
                 print(f"\033[33m> {block.name}({args_summary})\033[0m")
 
+            # 权限检查（如果启用了）
+            if self.permission is not None:
+                perm_result = self.permission.check(
+                    block.name, block.input, self.config.workdir,
+                )
+                if perm_result.decision.name == "DENY":
+                    output = f"权限拒绝: {perm_result.reason}"
+                    if self.verbose:
+                        print(f"\033[31m⛔ {output}\033[0m")
+                    results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": output,
+                    })
+                    continue
+
+                if perm_result.decision.name == "ASK":
+                    allowed = self.permission.ask_user(
+                        block.name, block.input, perm_result.reason or "",
+                    )
+                    if not allowed:
+                        output = f"用户拒绝: {perm_result.reason}"
+                        if self.verbose:
+                            print(f"\033[33m🚫 {output}\033[0m")
+                        results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": output,
+                        })
+                        continue
+
+            # 执行工具
             output = self.registry.dispatch(
                 block.name,
                 self.config.workdir,
