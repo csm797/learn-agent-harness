@@ -176,6 +176,70 @@ loop = AgentLoop(hooks=hooks)
 像**排插** —— 你把所有插头（hook）插到一个排插上，然后只把这个排插递给 AgentLoop。
 好处：没有全局变量，每个 loop 实例有自己的 hooks，互不干扰。
 
+---
+
+### 深入理解：Composite 到底怎么"灵活"？
+
+你说得对，**代码本身是写死的** —— `HookRegistry` 的代码写死了调用 `before_tool()`，`PermissionHook` 的代码写死了检查命令。那"灵活"在哪？
+
+**灵活在「组装」这一步是运行时决定的，而不是编译时决定的。**
+
+看两个极端：
+
+**极端 1：硬编码（最不灵活）**
+
+```python
+class AgentLoop:
+    def _execute_tool_calls(self, content):
+        for block in content:
+            # 所有逻辑写死在循环体里
+            if block.name == "bash" and "rm -rf" in block.input.get("command", ""):
+                output = "权限拒绝"
+            elif self.verbose:
+                print(f"> {block.name}")
+            else:
+                output = self.registry.dispatch(...)
+```
+
+要加新功能？改这个函数。要删功能？改这个函数。测试？只能测整个函数。
+
+**极端 2：插件系统（最灵活）**
+
+```python
+# main.py —— 用户自己决定装什么插件
+from my_hooks import LogHook, AuditHook, MetricsHook
+
+hooks = HookRegistry()
+hooks.register(LogHook())        # 要日志？
+hooks.register(AuditHook())      # 要审计？
+hooks.register(MetricsHook())    # 要监控？
+# 不用就注销
+# hooks.unregister(MetricsHook())
+
+loop = AgentLoop(config, registry, hooks=hooks)
+```
+
+不用改 `agent.py` 一行代码，就实现了不同的行为组合。
+
+**关键区别：**
+
+| | 硬编码 | Composite |
+|---|---|---|
+| 改行为要改哪里 | `agent.py` 的循环体 | `main.py` 的组装代码 |
+| 加新功能 | 改 `agent.py`（风险大） | 写一个新 Hook 类，注册（风险小） |
+| 测试 | 只能测整个循环 | 可以单独测每个 Hook |
+| 复用 | ❌ 每个项目都得改 agent.py | ✅ 写一次 Hook，到处注册 |
+
+**所以 Composite 的「灵活」不是说代码自己能变，而是说「组装权」从库的作者转移到了用户手里。** agent.py 的作者不需要预判用户想要什么功能，用户自己组装。
+
+再举个现实例子：**VS Code 的插件系统。**
+- VS Code 的代码是写死的（它不知道你要装什么插件）
+- 但你可以装 Python 插件、Git 插件、Vim 插件
+- 这些插件通过 VS Code 的扩展接口（类似 Hook 基类）与编辑器交互
+- 你决定装什么、不装什么（类似 `register` / `unregister`）
+
+这就是 Composite 模式 —— **框架提供接口和容器，用户决定里面装什么。**
+
 ### 3. 「阻断」：return str vs 改 context
 
 这是 s04 和我们 vs nanobot 的最大区别。
