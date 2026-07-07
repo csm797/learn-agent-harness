@@ -16,6 +16,7 @@ import sys
 from learn_cc import __version__
 from learn_cc.agent import AgentLoop
 from learn_cc.config import Config, ConfigError
+from learn_cc.hooks import Hook, HookRegistry
 from learn_cc.permission import PermissionChecker
 from learn_cc.tools.registry import ToolRegistry
 
@@ -67,10 +68,33 @@ def main(argv: list[str] | None = None) -> None:
             system_prompt=config.system_prompt,
         )
 
-    # 初始化（权限从 Config 读取）
+    # 初始化 Hook 系统
+    hooks = HookRegistry()
+
+    if not args.quiet:
+        class VerboseHook(Hook):
+            """显示 hook 生命周期事件。"""
+            def before_llm(self, messages):
+                print(f"\033[90m[hook] before_llm: 发送 {len(messages)} 条消息\033[0m")
+            def after_llm(self, response):
+                reason = getattr(response, "stop_reason", "?")
+                tools = sum(1 for b in (getattr(response, "content", []) or []) if getattr(b, "type", None) == "tool_use")
+                print(f"\033[90m[hook] after_llm: stop={reason}, tools={tools}\033[0m")
+            def before_tool(self, name, args):
+                print(f"\033[90m[hook] before_tool: {name}\033[0m")
+                return None
+            def after_tool(self, name, args, output):
+                print(f"\033[90m[hook] after_tool: {name} → {len(output)} chars\033[0m")
+            def on_stop(self, messages):
+                print(f"\033[90m[hook] on_stop: 共 {len(messages)} 条消息\033[0m")
+                return None
+
+        hooks.register(VerboseHook())
+
+    # 初始化
     registry = ToolRegistry.create_default()
     permission = PermissionChecker.from_config(config)
-    loop = AgentLoop(config, registry, verbose=not args.quiet, permission=permission)
+    loop = AgentLoop(config, registry, verbose=not args.quiet, permission=permission, hooks=hooks)
 
     # REPL
     print(f"\033[32mlearn-cc v{__version__} — 输入问题，回车发送。输入 q 退出。\033[0m\n")
