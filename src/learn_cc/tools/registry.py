@@ -74,6 +74,31 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["pattern"],
         },
     },
+    {
+        "name": "todo_write",
+        "description": "创建并管理当前编码会话的任务列表。"
+                       "开始多步骤任务前先用此工具规划步骤，并随着进度更新状态。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "todos": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "content": {"type": "string"},
+                            "status": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "completed"],
+                            },
+                        },
+                        "required": ["content", "status"],
+                    },
+                },
+            },
+            "required": ["todos"],
+        },
+    },
 ]
 
 
@@ -121,6 +146,7 @@ class ToolRegistry:
         """
         from learn_cc.tools.bash import run_bash
         from learn_cc.tools.file_ops import run_read, run_write, run_edit
+        from learn_cc.tools.planning import run_todo_write
         from learn_cc.tools.search import run_glob
 
         registry = cls()
@@ -129,4 +155,5 @@ class ToolRegistry:
         registry.register("write_file", run_write)
         registry.register("edit_file", run_edit)
         registry.register("glob", run_glob)
+        registry.register("todo_write", run_todo_write)
         return registry

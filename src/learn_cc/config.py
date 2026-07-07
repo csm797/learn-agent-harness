@@ -88,7 +88,9 @@ class Config:
 
         system_prompt = (
             f"You are a coding agent at {workdir}. "
-            f"Use tools to solve tasks. Act, don't explain."
+            f"Use tools to solve tasks. Act, don't explain. "
+            f"Before starting any multi-step task, use todo_write to plan your steps. "
+            f"Update todo status as you go."
         )
 
         # 权限配置（分号分隔的正则列表）

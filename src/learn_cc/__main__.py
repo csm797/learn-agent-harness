@@ -18,6 +18,8 @@ from learn_cc.agent import AgentLoop
 from learn_cc.config import Config, ConfigError
 from learn_cc.hooks import Hook, HookRegistry
 from learn_cc.permission import PermissionChecker
+from learn_cc.todo import TodoTracker
+from learn_cc.tools.planning import set_tracker
 from learn_cc.tools.registry import ToolRegistry
 
 
@@ -91,10 +93,19 @@ def main(argv: list[str] | None = None) -> None:
 
         hooks.register(VerboseHook())
 
-    # 初始化
+    # 初始化 TodoTracker（与 tools/planning.py 共享）
+    todo_tracker = TodoTracker(nag_after_rounds=3)
+    set_tracker(todo_tracker)
+
     registry = ToolRegistry.create_default()
     permission = PermissionChecker.from_config(config)
-    loop = AgentLoop(config, registry, verbose=not args.quiet, permission=permission, hooks=hooks)
+    loop = AgentLoop(
+        config, registry,
+        verbose=not args.quiet,
+        permission=permission,
+        hooks=hooks,
+        todo_tracker=todo_tracker,
+    )
 
     # REPL
     print(f"\033[32mlearn-cc v{__version__} — 输入问题，回车发送。输入 q 退出。\033[0m\n")

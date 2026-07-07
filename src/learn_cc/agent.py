@@ -15,6 +15,7 @@ from anthropic.types import Message
 from learn_cc.config import Config
 from learn_cc.hooks import HookRegistry
 from learn_cc.permission import PathPolicy
+from learn_cc.todo import TodoTracker
 from learn_cc.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -44,6 +45,7 @@ class AgentLoop:
         verbose: bool = True,
         permission: PermissionChecker | None = None,
         hooks: HookRegistry | None = None,
+        todo_tracker: TodoTracker | None = None,
     ):
         """
         初始化 Agent 循环。
@@ -53,13 +55,15 @@ class AgentLoop:
             registry: 工具注册表。
             verbose: 是否在 stdout 打印工具调用日志。
             permission: 可选的权限检查器。
-            hooks: 可选的 HookRegistry。传入后生命周期点自动触发 hooks。
+            hooks: 可选的 HookRegistry。
+            todo_tracker: 可选的 TodoTracker。传入后启用 nag 提醒。
         """
         self.config = config
         self.registry = registry
         self.verbose = verbose
         self.permission = permission
         self.hooks = hooks or HookRegistry()
+        self.todo_tracker = todo_tracker
 
         # 从配置创建 API 客户端
         self.client = Anthropic(
@@ -81,6 +85,17 @@ class AgentLoop:
             messages: 消息历史列表（会被原地修改）。
         """
         while True:
+            # Nag 提醒：如果 AI 太久没更新任务列表，注入提醒
+            if self.todo_tracker is not None and self.todo_tracker.should_nag():
+                reminder = self.todo_tracker.build_reminder()
+                if self.verbose:
+                    print(f"\033[33m[todo] nag: 提醒 AI 更新任务\033[0m")
+                messages.append({"role": "user", "content": reminder})
+
+            # 每轮增加 nag 计数
+            if self.todo_tracker is not None:
+                self.todo_tracker.tick()
+
             self.hooks.before_llm(messages)
             response = self._call_api(messages)
             self.hooks.after_llm(response)
@@ -175,6 +190,10 @@ class AgentLoop:
                 self.config.workdir,
                 **block.input,
             )
+
+            # Nag: AI 更新了任务 → 重置计数器
+            if self.todo_tracker is not None and block.name == "todo_write":
+                self.todo_tracker.rounds_since_update = 0
 
             # Hook: after_tool
             self.hooks.after_tool(block.name, block.input, output)
