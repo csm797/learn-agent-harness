@@ -111,6 +111,13 @@ DEFAULT_DENY_PATTERNS: list[str] = [
     r"\b(dd|diskpart|mkfs|format)\b",  # 磁盘操作 (Linux + Windows)
     r">\s*/dev/sd[a-z]",               # 写入磁盘设备
     r"\b(shutdown|reboot|poweroff|halt)\b",  # 系统电源
+    # PowerShell 绕过防御
+    r"\bremove-item\b.*-(?:force|recurse)",   # Remove-Item -Force/-Recurse
+    r"\bri\b.*-(?:force|recurse)",             # ri 别名 + 强制标志
+    r"\bclear-item\b",                         # Clear-Item
+    r"\bformat-volume\b",                      # Format-Volume
+    r"\bstop-computer\b",                      # Stop-Computer
+    r"\brestart-computer\b",                   # Restart-Computer
 ]
 
 # ── 规则列表 ──────────────────────────────────────────────
@@ -132,6 +139,8 @@ DEFAULT_RULES: list[Rule] = [
             for kw in [
                 "rm ", "del ", "erase ",     # 删除文件 (Linux + Windows)
                 "rd ", "rmdir ",             # 删除目录
+                "remove-item", "ri ",        # PowerShell 删除
+                "clear-item",                # PowerShell 清除
                 "> /etc/", "chmod 777", "chown ",  # 系统权限修改
             ]
         ),

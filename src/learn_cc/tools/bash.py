@@ -29,6 +29,13 @@ DENY_PATTERNS: list[str] = [
     r"\bwget\s+",                      # wget 下载
     r"\bcurl\s+",                      # curl 请求（危险变体）
     r":\(\)\s*\{.*\};\s*:",            # fork bomb
+    # PowerShell 绕过防御
+    r"\bremove-item\b.*-(?:force|recurse)",
+    r"\bri\b.*-(?:force|recurse)",
+    r"\bclear-item\b",
+    r"\bformat-volume\b",
+    r"\bstop-computer\b",
+    r"\brestart-computer\b",
 ]
 
 TIMEOUT_SECONDS = 120

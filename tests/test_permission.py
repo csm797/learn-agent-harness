@@ -124,6 +124,30 @@ class TestGate1RegexDeny:
         result = checker.check("bash", {"command": "format D:"}, policy)
         assert result.decision == Decision.DENY
 
+    def test_deny_powershell_remove_item(self):
+        """PowerShell Remove-Item -Force 应该拦截。"""
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=Path("/tmp"))
+        cmd = 'powershell -Command "Remove-Item -Path C:\\tmp -Recurse -Force"'
+        result = checker.check("bash", {"command": cmd}, policy)
+        assert result.decision == Decision.DENY
+
+    def test_deny_powershell_ri_force(self):
+        """PowerShell ri 别名 + -Force 应该拦截。"""
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=Path("/tmp"))
+        cmd = 'powershell "ri C:\\tmp -Recurse -Force"'
+        result = checker.check("bash", {"command": cmd}, policy)
+        assert result.decision == Decision.DENY
+
+    def test_gate2_powershell_remove_item(self):
+        """PowerShell Remove-Item 不带 Force 时触发 ASK。"""
+        checker = PermissionChecker()
+        policy = PathPolicy(workdir=Path("/tmp"))
+        cmd = 'powershell "Remove-Item C:\\tmp\\old.txt"'
+        result = checker.check("bash", {"command": cmd}, policy)
+        assert result.decision == Decision.ASK
+
     def test_allow_safe_command(self):
         """安全命令通过 Gate 1。"""
         checker = PermissionChecker()
