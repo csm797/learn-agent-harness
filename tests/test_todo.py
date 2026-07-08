@@ -49,24 +49,11 @@ class TestTodoTracker:
         assert t.todos == []
         assert not t.has_active_goal
 
-    def test_update_resets_counter(self):
+    def test_update_tasks(self):
         t = TodoTracker()
-        t.tick()
-        t.tick()
         t.update_todos([{"content": "任务1", "status": "pending"}])
-        assert t.rounds_since_update == 0
         assert len(t.todos) == 1
-
-    def test_nag_after_threshold(self):
-        t = TodoTracker(nag_after_rounds=2)
-        t.tick()
-        t.tick()
-        assert t.should_nag()
-
-    def test_no_nag_before_threshold(self):
-        t = TodoTracker(nag_after_rounds=3)
-        t.tick()
-        assert not t.should_nag()
+        assert t.todos[0]["content"] == "任务1"
 
 
 class TestRuntimeContext:

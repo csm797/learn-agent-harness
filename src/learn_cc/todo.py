@@ -42,15 +42,9 @@ class TodoTracker:
     4. 文件持久化
     """
 
-    def __init__(
-        self,
-        persistence_path: str | Path | None = None,
-        nag_after_rounds: int = 3,
-    ):
+    def __init__(self, persistence_path: str | Path | None = None):
         self.goal = Goal()
         self.todos: list[dict] = []
-        self.rounds_since_update = 0
-        self.nag_after_rounds = nag_after_rounds
         self._persistence_path = Path(persistence_path) if persistence_path else None
         self._load()
 
@@ -84,19 +78,9 @@ class TodoTracker:
     # ── 任务列表管理 ──
 
     def update_todos(self, todos: list[dict]) -> None:
-        """更新任务列表并重置计数器。"""
+        """更新任务列表。"""
         self.todos = todos
-        self.rounds_since_update = 0
         self._save()
-
-    def tick(self) -> None:
-        self.rounds_since_update += 1
-
-    def should_nag(self) -> bool:
-        return self.rounds_since_update >= self.nag_after_rounds
-
-    def build_reminder(self) -> str:
-        return "<reminder>你已经有几轮没更新任务列表了。请用 todo_write 更新当前进度。</reminder>"
 
     # ── Runtime Context（参考 nanobot goal_state_runtime_lines） ──
 

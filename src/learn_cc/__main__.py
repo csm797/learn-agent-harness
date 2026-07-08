@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> None:
     # 初始化 TodoTracker（与 tools/planning.py 共享）
     from pathlib import Path
     persistence_path = Path(config.workdir) / "goals.json"
-    todo_tracker = TodoTracker(persistence_path=persistence_path, nag_after_rounds=3)
+    todo_tracker = TodoTracker(persistence_path=persistence_path)
     set_tracker(todo_tracker)
 
     registry = ToolRegistry.create_default()
