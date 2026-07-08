@@ -1,0 +1,19 @@
+{
+  "goal": {
+    "objective": "",
+    "status": "active",
+    "created_at": "",
+    "completed_at": null,
+    "recap": null
+  },
+  "todos": [
+    {
+      "content": "探索项目结构",
+      "status": "completed"
+    },
+    {
+      "content": "使用子任务查找测试框架",
+      "status": "completed"
+    }
+  ]
+}

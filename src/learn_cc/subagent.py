@@ -79,6 +79,10 @@ class SubagentManager:
 
         sub_registry = ToolRegistry.create_subagent_default()
 
+        if self.verbose:
+            preview = description[:80] + "..." if len(description) > 80 else description
+            print(f"\n\033[35m⚡ [子 agent 启动]\033[0m {preview}")
+
         sub_loop = AgentLoop(
             config=self.config,
             registry=sub_registry,
@@ -91,4 +95,9 @@ class SubagentManager:
         messages: list = [{"role": "user", "content": description}]
         sub_loop.run(messages)
 
-        return _extract_text(messages)
+        result = _extract_text(messages)
+
+        if self.verbose:
+            print(f"\033[35m✅ [子 agent 完成]\033[0m 返回 {len(result)} 字符")
+
+        return result
