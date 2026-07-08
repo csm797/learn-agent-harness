@@ -36,7 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--quiet",
         action="store_true",
-        help="不打印工具调用日志",
+        help="不打印工具调用日志和子 agent 标记",
+    )
+    parser.add_argument(
+        "--trace",
+        action="store_true",
+        help="打印 hook 生命周期日志（[hook] before_llm, after_llm...）",
     )
     parser.add_argument(
         "--version",
@@ -74,9 +79,9 @@ def main(argv: list[str] | None = None) -> None:
     # 初始化 Hook 系统
     hooks = HookRegistry()
 
-    if not args.quiet:
-        class VerboseHook(Hook):
-            """显示 hook 生命周期事件。"""
+    if args.trace:
+        class TraceHook(Hook):
+            """显示 hook 生命周期事件（仅 --trace 时启用）。"""
             def before_llm(self, messages):
                 print(f"\033[90m[hook] before_llm: 发送 {len(messages)} 条消息\033[0m")
             def after_llm(self, response):
@@ -92,7 +97,7 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"\033[90m[hook] on_stop: 共 {len(messages)} 条消息\033[0m")
                 return None
 
-        hooks.register(VerboseHook())
+        hooks.register(TraceHook())
 
     # 初始化 TodoTracker（与 tools/planning.py 共享）
     from pathlib import Path
