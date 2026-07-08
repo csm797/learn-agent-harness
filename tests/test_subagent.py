@@ -70,6 +70,18 @@ class TestSubagentManager:
         assert "错误" in result
         assert "不能为空" in result
 
+    def test_spawn_accepts_workdir(self, monkeypatch):
+        """spawn 应该接受 workdir 参数（registry dispatch 兼容）。"""
+        from learn_cc.config import Config
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+        monkeypatch.setenv("MODEL_ID", "claude-test")
+        config = Config.load(env_file=None)
+
+        mgr = SubagentManager(config)
+        # 不会报错
+        result = mgr.spawn("", workdir="/tmp")
+        assert "错误" in result
+
     def test_spawn_runs_agent_loop(self, monkeypatch):
         """spawn 应该创建 AgentLoop 并运行。"""
         from learn_cc.config import Config

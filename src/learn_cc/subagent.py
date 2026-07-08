@@ -63,12 +63,13 @@ class SubagentManager:
         self.hooks = hooks
         self.verbose = verbose
 
-    def spawn(self, description: str) -> str:
+    def spawn(self, description: str, workdir: object = None) -> str:
         """
         启动子 agent 执行任务。
 
         Args:
             description: 任务描述。
+            workdir: 工作目录（兼容接口，与 registry.dispatch 签名一致）。
 
         Returns:
             子 agent 的最终回复文本。
