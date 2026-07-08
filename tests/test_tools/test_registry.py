@@ -14,6 +14,8 @@ class TestToolRegistry:
         registry = ToolRegistry.create_default()
         expected = {"bash", "read_file", "write_file", "edit_file", "glob",
                      "long_task", "complete_goal", "todo_write"}
+        # task 工具由 SubagentManager 动态注册，不在 create_default 中
+        assert "task" not in registry.handlers
         assert set(registry.handlers.keys()) == expected
 
     def test_get_schemas_only_registered(self):

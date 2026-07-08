@@ -19,6 +19,7 @@ from learn_cc.config import Config, ConfigError
 from learn_cc.hooks import Hook, HookRegistry
 from learn_cc.permission import PermissionChecker
 from learn_cc.todo import TodoTracker
+from learn_cc.subagent import SubagentManager
 from learn_cc.tools.planning import set_tracker
 from learn_cc.tools.registry import ToolRegistry
 
@@ -101,6 +102,14 @@ def main(argv: list[str] | None = None) -> None:
 
     registry = ToolRegistry.create_default()
     permission = PermissionChecker.from_config(config)
+
+    # 初始化子 agent 管理器并注册 task 工具
+    subagent_mgr = SubagentManager(
+        config, permission=permission, hooks=hooks,
+        verbose=not args.quiet,
+    )
+    registry.register("task", subagent_mgr.spawn)
+
     loop = AgentLoop(
         config, registry,
         verbose=not args.quiet,

@@ -128,6 +128,21 @@ TOOL_SCHEMAS: list[dict] = [
             "required": ["todos"],
         },
     },
+    {
+        "name": "task",
+        "description": "启动一个子 agent 处理复杂的子任务。子 agent 有独立的上下文，"
+                       "返回最终结论（不保留中间过程）。适合需要隔离执行的复杂问题。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": "子任务的详细描述，包括背景、要求和验收标准。",
+                },
+            },
+            "required": ["description"],
+        },
+    },
 ]
 
 
@@ -191,4 +206,27 @@ class ToolRegistry:
         registry.register("long_task", run_long_task)
         registry.register("complete_goal", run_complete_goal)
         registry.register("todo_write", run_todo_write)
+        # task 工具由 SubagentManager 动态注册，不在 create_default 中
+        return registry
+
+    @classmethod
+    def create_subagent_default(cls) -> ToolRegistry:
+        """
+        创建子 agent 使用的工具注册表。
+
+        限制：
+        - 只有基础工具（bash/read/write/edit/glob）
+        - 没有 task（防递归）
+        - 没有 todo_write/long_task/complete_goal（不干扰父 agent 的目标）
+        """
+        from learn_cc.tools.bash import run_bash
+        from learn_cc.tools.file_ops import run_read, run_write, run_edit
+        from learn_cc.tools.search import run_glob
+
+        registry = cls()
+        registry.register("bash", run_bash)
+        registry.register("read_file", run_read)
+        registry.register("write_file", run_write)
+        registry.register("edit_file", run_edit)
+        registry.register("glob", run_glob)
         return registry

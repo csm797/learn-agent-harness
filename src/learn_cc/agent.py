@@ -46,17 +46,19 @@ class AgentLoop:
         permission: PermissionChecker | None = None,
         hooks: HookRegistry | None = None,
         todo_tracker: TodoTracker | None = None,
+        max_iterations: int | None = None,
     ):
         """
         初始化 Agent 循环。
 
         Args:
-            config: 应用配置（API Key、模型、工作目录……）。
+            config: 应用配置。
             registry: 工具注册表。
-            verbose: 是否在 stdout 打印工具调用日志。
+            verbose: 是否打印工具调用日志。
             permission: 可选的权限检查器。
             hooks: 可选的 HookRegistry。
-            todo_tracker: 可选的 TodoTracker。传入后启用 nag 提醒。
+            todo_tracker: 可选的 TodoTracker。
+            max_iterations: 最大迭代轮数（子 agent 用）。
         """
         self.config = config
         self.registry = registry
@@ -64,6 +66,7 @@ class AgentLoop:
         self.permission = permission
         self.hooks = hooks or HookRegistry()
         self.todo_tracker = todo_tracker
+        self.max_iterations = max_iterations
 
         # 从配置创建 API 客户端
         self.client = Anthropic(
@@ -84,7 +87,14 @@ class AgentLoop:
         Args:
             messages: 消息历史列表（会被原地修改）。
         """
+        iteration = 0
         while True:
+            # 检查迭代限制（子 agent 用）
+            if self.max_iterations is not None and iteration >= self.max_iterations:
+                if self.verbose:
+                    print(f"\033[33m[agent] 达到最大迭代限制 ({self.max_iterations})\033[0m")
+                return
+
             # Runtime Context 注入：每轮让 AI 看到当前目标和进度
             if self.todo_tracker is not None:
                 runtime_ctx = self.todo_tracker.build_runtime_context()
@@ -97,6 +107,7 @@ class AgentLoop:
             response = self._call_api(messages)
             self.hooks.after_llm(response)
             messages.append({"role": "assistant", "content": response.content})
+            iteration += 1
 
             if response.stop_reason != "tool_use":
                 injected = self.hooks.on_stop(messages)
