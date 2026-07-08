@@ -40,16 +40,20 @@ class Config:
     """工作目录 —— 所有文件操作的安全边界。"""
 
     system_prompt: str
-    """系统提示词。"""
+    """系统提示词，包含技能目录（如有）。"""
 
     deny_patterns: tuple[str, ...] = ()
-    """权限系统：自定义 deny 正则列表（逗号分隔）。空=用代码默认值。"""
+    """权限系统：自定义 deny 正则列表。"""
 
     allow_patterns: tuple[str, ...] = ()
     """权限系统：自定义 allow 正则列表。非空时启用白名单模式。"""
 
     @classmethod
-    def load(cls, env_file: str = ".env") -> Config:
+    def load(
+        cls,
+        env_file: str = ".env",
+        skill_catalog: str = "",
+    ) -> Config:
         """
         从环境变量加载配置。
 
@@ -92,6 +96,8 @@ class Config:
             f"Before starting any multi-step task, use todo_write to plan your steps. "
             f"Update todo status as you go."
         )
+        if skill_catalog:
+            system_prompt += f"\n\n{skill_catalog}"
 
         # 权限配置（分号分隔的正则列表）
         # 例子: PERMISSION_DENY_PATTERNS="\brm\s+-[rf]{1,2}\b;\bshutdown\b"

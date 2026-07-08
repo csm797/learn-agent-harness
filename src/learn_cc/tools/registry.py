@@ -129,6 +129,21 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "load_skill",
+        "description": "按名称加载完整技能内容。技能目录已列在系统提示中，"
+                       "调用此工具获取详细指导。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "技能名称。",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
         "name": "task",
         "description": "启动一个子 agent 处理复杂的子任务。子 agent 有独立的上下文，"
                        "返回最终结论（不保留中间过程）。适合需要隔离执行的复杂问题。",
@@ -206,7 +221,8 @@ class ToolRegistry:
         registry.register("long_task", run_long_task)
         registry.register("complete_goal", run_complete_goal)
         registry.register("todo_write", run_todo_write)
-        # task 工具由 SubagentManager 动态注册，不在 create_default 中
+        # load_skill 由 SkillLoader 动态注册（需要 loader 实例）
+        # task 由 SubagentManager 动态注册
         return registry
 
     @classmethod

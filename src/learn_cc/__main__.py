@@ -18,6 +18,7 @@ from learn_cc.agent import AgentLoop
 from learn_cc.config import Config, ConfigError
 from learn_cc.hooks import Hook, HookRegistry
 from learn_cc.permission import PermissionChecker
+from learn_cc.skills_loader import SkillLoader, set_loader
 from learn_cc.todo import TodoTracker
 from learn_cc.subagent import SubagentManager
 from learn_cc.tools.planning import set_tracker
@@ -59,22 +60,31 @@ def main(argv: list[str] | None = None) -> None:
         print(f"learn-cc v{__version__}")
         return
 
-    # 加载配置
+    # 加载基础配置
     try:
         config = Config.load()
     except ConfigError as e:
         print(f"\033[31m配置错误: {e}\033[0m", file=sys.stderr)
         sys.exit(1)
 
-    # 允许 CLI 覆盖模型
-    if args.model:
-        config = Config(
-            api_key=config.api_key,
-            base_url=config.base_url,
-            model=args.model,
-            workdir=config.workdir,
-            system_prompt=config.system_prompt,
-        )
+    # 初始化技能系统，注入目录到 system prompt
+    from pathlib import Path as _Path
+    skill_loader = SkillLoader(_Path(__file__).parent / "skills")
+    set_loader(skill_loader)
+    catalog = skill_loader.build_catalog()
+    enriched_prompt = config.system_prompt
+    if catalog:
+        enriched_prompt += f"\n\n{catalog}"
+    model = args.model if args.model else config.model
+    config = Config(
+        api_key=config.api_key,
+        base_url=config.base_url,
+        model=model,
+        workdir=config.workdir,
+        system_prompt=enriched_prompt,
+        deny_patterns=config.deny_patterns,
+        allow_patterns=config.allow_patterns,
+    )
 
     # 初始化 Hook 系统
     hooks = HookRegistry()
@@ -108,7 +118,10 @@ def main(argv: list[str] | None = None) -> None:
     registry = ToolRegistry.create_default()
     permission = PermissionChecker.from_config(config)
 
-    # 初始化子 agent 管理器并注册 task 工具
+    # 注册动态工具（需要实例的）
+    from learn_cc.skills_loader import run_load_skill
+    registry.register("load_skill", run_load_skill)
+
     subagent_mgr = SubagentManager(
         config, permission=permission, hooks=hooks,
         verbose=not args.quiet,
