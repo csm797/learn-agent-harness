@@ -99,7 +99,7 @@ class TodoTracker:
             completed = sum(1 for t in self.todos if t["status"] == "completed")
             lines.append(f"\n进度: {completed}/{len(self.todos)} 项任务完成")
             for t in self.todos:
-                icon = {"pending": " ", "in_progress": "▸", "completed": "✓"}.get(t["status"], "?")
+                icon = {"pending": " ", "in_progress": "▸", "completed": "✓", "failed": "✗"}.get(t["status"], "?")
                 lines.append(f"  [{icon}] {t['content']}")
 
         return "\n".join(lines) if lines else ""

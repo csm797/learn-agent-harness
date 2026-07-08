@@ -157,6 +157,17 @@ class TestPlanningTools:
         result = run_long_task("")
         assert "错误" in result
 
+    def test_todo_failed_status(self):
+        """failed 状态应该被允许。"""
+        t = TodoTracker()
+        set_tracker(t)
+        result = run_todo_write([
+            {"content": "尝试方案A", "status": "failed"},
+            {"content": "尝试方案B", "status": "completed"},
+        ])
+        assert "已更新" in result
+        assert t.todos[0]["status"] == "failed"
+
 
 class TestRegistry:
     def test_new_tools_registered(self):

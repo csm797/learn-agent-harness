@@ -49,7 +49,7 @@ def _normalize_todos(todos: list | str) -> tuple[list | None, str | None]:
             return None, f"错误: todos[{i}] 必须是对象"
         if "content" not in t or "status" not in t:
             return None, f"错误: todos[{i}] 缺少 'content' 或 'status'"
-        if t["status"] not in ("pending", "in_progress", "completed"):
+        if t["status"] not in ("pending", "in_progress", "completed", "failed"):
             return None, f"错误: todos[{i}] 状态无效 '{t['status']}'"
     return todos, None
 
@@ -179,6 +179,7 @@ def run_todo_write(todos: list, workdir: Path | None = None) -> str:
             "pending": " ",
             "in_progress": "\033[36m▸\033[0m",
             "completed": "\033[32m✓\033[0m",
+            "failed": "\033[31m✗\033[0m",
         }[t["status"]]
         lines.append(f"  [{icon}] {t['content']}")
 

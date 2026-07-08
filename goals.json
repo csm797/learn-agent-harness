@@ -1,0 +1,35 @@
+{
+  "goal": {
+    "objective": "",
+    "status": "active",
+    "created_at": "",
+    "completed_at": null,
+    "recap": null
+  },
+  "todos": [
+    {
+      "content": "Create tmp/ directory structure",
+      "status": "completed"
+    },
+    {
+      "content": "Create tmp/__init__.py",
+      "status": "completed"
+    },
+    {
+      "content": "Create tmp/utils.py",
+      "status": "completed"
+    },
+    {
+      "content": "Create tmp/tests/__init__.py",
+      "status": "completed"
+    },
+    {
+      "content": "Create tmp/tests/test_utils.py",
+      "status": "completed"
+    },
+    {
+      "content": "Verify tests pass",
+      "status": "completed"
+    }
+  ]
+}

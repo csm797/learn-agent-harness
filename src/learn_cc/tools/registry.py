@@ -118,7 +118,7 @@ TOOL_SCHEMAS: list[dict] = [
                             "content": {"type": "string"},
                             "status": {
                                 "type": "string",
-                                "enum": ["pending", "in_progress", "completed"],
+                                "enum": ["pending", "in_progress", "completed", "failed"],
                             },
                         },
                         "required": ["content", "status"],
