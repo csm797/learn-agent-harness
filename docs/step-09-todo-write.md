@@ -209,6 +209,98 @@ tracker2 = TodoTracker(nag_after_rounds=5)
 
 ---
 
+## 与 nanobot 规划系统的对比
+
+nanobot 的规划系统比 s05 和我们当前的实现都更成熟。它叫 **Sustained Goals（持续目标）**，核心是两个工具：
+
+### nanobot 的架构
+
+```
+long_task(goal="...")         ← 注册一个持续目标
+    ↓
+目标存入 session metadata     ← 持久化，不丢
+    ↓
+每轮注入 Runtime Context      ← AI 每轮都看到目标
+    ↓
+用普通工具干活 ...
+    ↓
+complete_goal(recap="...")    ← 完成目标，写总结
+```
+
+### 关键设计差异
+
+| 维度 | s05 / 我们的 todo_write | nanobot long_task |
+|------|----------------------|-------------------|
+| 工具数量 | 1 个：`todo_write` | 2 个：`long_task` + `complete_goal` |
+| 持久化 | 内存变量，重启丢 | session metadata，持久化 |
+| 可见性 | AI 不主动更新就 nag | 每轮自动注入 Runtime Context |
+| 任务状态 | pending / in_progress / completed | active / completed |
+| AI 指导 | system prompt 一句话 | `long-goal/SKILL.md` 一整篇 |
+| 并发 | 无（全局唯一） | 每次 session 一个 |
+| 与 compaction 的关系 | 无 | 目标在 compaction 后仍然可见 |
+| 完成记录 | 直接删除或改状态 | 保留 recap，记录完成时间 |
+
+### nanobot 最值得学的 3 个设计
+
+**1. Runtime Context 自动注入（而不是 nag）**
+
+nanobot 不靠 nag。它在每轮调用 LLM 之前，把活跃目标注入到 system prompt 后的 Runtime Context 块里：
+
+```python
+# nanobot/session/goal_state.py
+def goal_state_runtime_lines(metadata):
+    """每轮调用的辅助函数，返回 [goal lines] 插入消息列表。"""
+    ...
+    return [
+        "Goal (active):",
+        "把重构完的项目推到 GitHub，包括……",
+    ]
+```
+
+AI **每轮都看到目标**，不需要 nag。nag 是被动的，自动注入是主动的。
+
+**2. Idempotent Goals（幂等目标）**
+
+nanobot 有一整篇 SKILL.md 教 AI 如何写目标：
+
+```
+好的目标（幂等的）：
+  "确保 docs/ 目录下存在 README.md，内容包含项目简介和安装步骤"
+
+不好的目标（脆弱、依赖记忆）：
+  "先写 README，然后我告诉你下一步做什么"
+```
+
+幂等目标的意思是：即使 compaction 删了历史消息，AI 重新读到这个目标，仍然知道要干什么、干完了没有。
+
+**3. `complete_goal` 强制写总结**
+
+```python
+complete_goal(recap="完成了 README 编写和目录结构调整 ...")
+```
+
+这个设计强迫 AI 在切换目标或完成时做回顾。防止"做了一半换任务，前一个不了了之"。
+
+### 我们可以改进的方向
+
+| 改进 | 难度 | 影响 |
+|------|------|------|
+| Runtime Context 注入目标 | 低 | AI 每轮看到任务，减少 nag 依赖 |
+| 持久化到 session 文件 | 中 | 重启不丢 |
+| Idempotent goal 指导 | 低 | 提高 AI 规划质量 |
+| complete_goal 写总结 | 低 | 留下完成记录 |
+
+### 为什么我们现在不直接做成 nanobot 那样？
+
+因为我们的**架构阶段不同**：
+
+- nanobot 有 session 管理层、有 compaction、有 skill 系统——这些 infrastructure 在实现 long_task 之前就已经存在了
+- 我们还在学习阶段，先做最小可用版本，等需要持久化时再升级
+
+**"先让它跑起来，再让它跑得稳。"**
+
+---
+
 ## 本次变更
 
 | 文件 | 操作 |
