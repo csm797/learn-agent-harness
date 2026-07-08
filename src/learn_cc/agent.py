@@ -99,8 +99,6 @@ class AgentLoop:
             if self.todo_tracker is not None:
                 runtime_ctx = self.todo_tracker.build_runtime_context()
                 if runtime_ctx:
-                    if self.verbose:
-                        print(f"\033[90m[runtime] 注入目标上下文\033[0m")
                     messages.append({"role": "user", "content": runtime_ctx})
 
             self.hooks.before_llm(messages)
