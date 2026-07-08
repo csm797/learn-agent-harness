@@ -1,58 +1,165 @@
 """
-todo — 任务跟踪器。
+todo — 目标与任务跟踪。
 
-管理 AI 的任务列表（todos）和 nag 提醒机制。
-当 AI 连续多轮不更新任务时自动提醒。
+参考 nanobot 的 long_task / complete_goal 设计：
+- 单目标（Goal）：long_task 设定，complete_goal 完成
+- 任务列表（todos）：todo_write 管理（微规划）
+- Runtime Context：每轮自动注入
+- 文件持久化：重启不丢
 """
 
 from __future__ import annotations
 
+import json
+import os
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Literal
+
+GoalStatus = Literal["active", "completed"]
+
+
+@dataclass
+class Goal:
+    """一个持续目标（参考 nanobot Sustained Goal）。"""
+
+    objective: str = ""
+    status: GoalStatus = "active"
+    created_at: str = ""
+    completed_at: str | None = None
+    recap: str | None = None
+
 
 class TodoTracker:
     """
-    任务跟踪器。
+    目标与任务跟踪器。
 
-    职责：
-    1. 持有当前任务列表
-    2. 跟踪"多少轮没更新了"
-    3. 决定是否需要 nag
+    核心功能：
+    1. 管理一个活跃目标（long_task / complete_goal）
+    2. 管理任务列表（todo_write）
+    3. 构建 Runtime Context 注入文本
+    4. 文件持久化
     """
 
-    def __init__(self, nag_after_rounds: int = 3):
+    def __init__(
+        self,
+        persistence_path: str | Path | None = None,
+        nag_after_rounds: int = 3,
+    ):
+        self.goal = Goal()
         self.todos: list[dict] = []
         self.rounds_since_update = 0
         self.nag_after_rounds = nag_after_rounds
+        self._persistence_path = Path(persistence_path) if persistence_path else None
+        self._load()
 
-    def update(self, todos: list[dict]) -> None:
+    # ── 目标管理（参考 nanobot long_task / complete_goal） ──
+
+    @property
+    def has_active_goal(self) -> bool:
+        return bool(self.goal.objective) and self.goal.status == "active"
+
+    def set_goal(self, objective: str) -> None:
+        """设定一个新的持续目标。"""
+        now = datetime.now().isoformat()
+        self.goal = Goal(
+            objective=objective.strip(),
+            status="active",
+            created_at=now,
+        )
+        self._save()
+
+    def complete_goal(self, recap: str = "") -> str:
+        """完成当前目标，记录总结。"""
+        if not self.has_active_goal:
+            return "错误: 没有活跃目标需要完成"
+        now = datetime.now().isoformat()
+        self.goal.status = "completed"
+        self.goal.completed_at = now
+        self.goal.recap = (recap or "").strip()
+        self._save()
+        return f"目标已完成。{recap}" if recap else "目标已完成。"
+
+    # ── 任务列表管理 ──
+
+    def update_todos(self, todos: list[dict]) -> None:
         """更新任务列表并重置计数器。"""
         self.todos = todos
         self.rounds_since_update = 0
+        self._save()
 
     def tick(self) -> None:
-        """每轮调用一次，增加计数器。"""
         self.rounds_since_update += 1
 
     def should_nag(self) -> bool:
-        """是否应该发送提醒。"""
         return self.rounds_since_update >= self.nag_after_rounds
 
     def build_reminder(self) -> str:
-        """生成提醒消息。"""
-        return (
-            "<reminder>你已经有几轮没更新任务列表了。"
-            "请用 todo_write 更新当前进度。</reminder>"
-        )
+        return "<reminder>你已经有几轮没更新任务列表了。请用 todo_write 更新当前进度。</reminder>"
 
-    @property
-    def has_todos(self) -> bool:
-        return bool(self.todos)
+    # ── Runtime Context（参考 nanobot goal_state_runtime_lines） ──
 
-    def format_todos(self) -> str:
-        """格式化任务列表供显示。"""
-        if not self.todos:
-            return "(空)"
-        lines = []
-        for t in self.todos:
-            icon = {"pending": " ", "in_progress": "▸", "completed": "✓"}.get(t["status"], "?")
-            lines.append(f"  [{icon}] {t['content']}")
-        return "\n".join(lines)
+    def build_runtime_context(self) -> str:
+        """
+        构建 Runtime Context 文本。
+        每轮注入到消息列表中，让 AI 始终看到目标和进度。
+        """
+        lines: list[str] = []
+
+        if self.has_active_goal:
+            lines.append(f"## 当前目标 (active)")
+            lines.append(self.goal.objective)
+
+        if self.todos:
+            completed = sum(1 for t in self.todos if t["status"] == "completed")
+            lines.append(f"\n进度: {completed}/{len(self.todos)} 项任务完成")
+            for t in self.todos:
+                icon = {"pending": " ", "in_progress": "▸", "completed": "✓"}.get(t["status"], "?")
+                lines.append(f"  [{icon}] {t['content']}")
+
+        return "\n".join(lines) if lines else ""
+
+    # ── 持久化 ──
+
+    def _persistence_path(self) -> Path | None:
+        return self._persistence_path
+
+    def _save(self) -> None:
+        if not self._persistence_path:
+            return
+        try:
+            data = {
+                "goal": {
+                    "objective": self.goal.objective,
+                    "status": self.goal.status,
+                    "created_at": self.goal.created_at,
+                    "completed_at": self.goal.completed_at,
+                    "recap": self.goal.recap,
+                },
+                "todos": self.todos,
+            }
+            self._persistence_path.parent.mkdir(parents=True, exist_ok=True)
+            self._persistence_path.write_text(
+                json.dumps(data, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass  # 持久化失败不中断程序
+
+    def _load(self) -> None:
+        if not self._persistence_path or not self._persistence_path.exists():
+            return
+        try:
+            data = json.loads(self._persistence_path.read_text(encoding="utf-8"))
+            g = data.get("goal", {})
+            self.goal = Goal(
+                objective=g.get("objective", ""),
+                status=g.get("status", "active"),
+                created_at=g.get("created_at", ""),
+                completed_at=g.get("completed_at"),
+                recap=g.get("recap"),
+            )
+            self.todos = data.get("todos", [])
+        except (json.JSONDecodeError, OSError):
+            pass

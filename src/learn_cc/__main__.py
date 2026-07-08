@@ -94,7 +94,9 @@ def main(argv: list[str] | None = None) -> None:
         hooks.register(VerboseHook())
 
     # 初始化 TodoTracker（与 tools/planning.py 共享）
-    todo_tracker = TodoTracker(nag_after_rounds=3)
+    from pathlib import Path
+    persistence_path = Path(config.workdir) / "goals.json"
+    todo_tracker = TodoTracker(persistence_path=persistence_path, nag_after_rounds=3)
     set_tracker(todo_tracker)
 
     registry = ToolRegistry.create_default()

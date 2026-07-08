@@ -75,9 +75,38 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "long_task",
+        "description": "为当前对话设定一个持续目标。调用后目标每轮自动注入上下文。"
+                       "完成时调用 complete_goal。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "goal": {
+                    "type": "string",
+                    "description": "持续目标描述，应幂等、有明确完成条件。",
+                },
+            },
+            "required": ["goal"],
+        },
+    },
+    {
+        "name": "complete_goal",
+        "description": "完成当前活跃的持续目标并写一份简短总结。"
+                       "用户取消或重定向时也要调用。",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "recap": {
+                    "type": "string",
+                    "description": "完成总结：做了什么、结果如何。",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "todo_write",
-        "description": "创建并管理当前编码会话的任务列表。"
-                       "开始多步骤任务前先用此工具规划步骤，并随着进度更新状态。",
+        "description": "创建或更新当前会话的任务列表。开始多步骤任务前先用此工具规划步骤。",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -146,7 +175,11 @@ class ToolRegistry:
         """
         from learn_cc.tools.bash import run_bash
         from learn_cc.tools.file_ops import run_read, run_write, run_edit
-        from learn_cc.tools.planning import run_todo_write
+        from learn_cc.tools.planning import (
+            run_complete_goal,
+            run_long_task,
+            run_todo_write,
+        )
         from learn_cc.tools.search import run_glob
 
         registry = cls()
@@ -155,5 +188,7 @@ class ToolRegistry:
         registry.register("write_file", run_write)
         registry.register("edit_file", run_edit)
         registry.register("glob", run_glob)
+        registry.register("long_task", run_long_task)
+        registry.register("complete_goal", run_complete_goal)
         registry.register("todo_write", run_todo_write)
         return registry

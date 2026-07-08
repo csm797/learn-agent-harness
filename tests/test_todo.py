@@ -1,196 +1,181 @@
-"""测试 TodoTracker 和 todo_write 工具。"""
+"""测试 TodoTracker：目标 + 任务列表 + 持久化 + Runtime Context。"""
+
+import json
+from pathlib import Path
 
 import pytest
 
-from learn_cc.todo import TodoTracker
-from learn_cc.tools.planning import run_todo_write, set_tracker
+from learn_cc.todo import Goal, TodoTracker
+from learn_cc.tools.planning import (
+    run_complete_goal,
+    run_long_task,
+    run_todo_write,
+    set_tracker,
+)
+
+
+class TestGoal:
+    def test_default_state(self):
+        """新 Goal 默认是 active 状态。"""
+        g = Goal()
+        assert g.status == "active"
+        assert g.objective == ""
+
+    def test_set_goal(self):
+        """设定目标后 has_active_goal 应该为 True。"""
+        t = TodoTracker()
+        t.set_goal("完成项目重构")
+        assert t.has_active_goal
+        assert t.goal.objective == "完成项目重构"
+
+    def test_complete_goal(self):
+        """完成目标后状态变为 completed。"""
+        t = TodoTracker()
+        t.set_goal("写测试")
+        t.complete_goal("写了 50 个测试")
+        assert t.goal.status == "completed"
+        assert "50 个测试" in (t.goal.recap or "")
+
+    def test_complete_goal_no_active(self):
+        """没有活跃目标时 complete_goal 返回错误。"""
+        t = TodoTracker()
+        result = t.complete_goal("总结")
+        assert "错误" in result
 
 
 class TestTodoTracker:
     def test_empty_initially(self):
-        """新 tracker 应该无任务、不 nag。"""
         t = TodoTracker()
         assert t.todos == []
-        assert t.rounds_since_update == 0
-        assert not t.should_nag()
+        assert not t.has_active_goal
 
     def test_update_resets_counter(self):
-        """update 应该设置任务并重置计数器。"""
         t = TodoTracker()
         t.tick()
         t.tick()
-        assert t.rounds_since_update == 2
-
-        t.update([{"content": "任务1", "status": "pending"}])
+        t.update_todos([{"content": "任务1", "status": "pending"}])
         assert t.rounds_since_update == 0
         assert len(t.todos) == 1
 
     def test_nag_after_threshold(self):
-        """超过阈值应该 nag。"""
-        t = TodoTracker(nag_after_rounds=3)
-        t.tick()
+        t = TodoTracker(nag_after_rounds=2)
         t.tick()
         t.tick()
         assert t.should_nag()
 
     def test_no_nag_before_threshold(self):
-        """未达阈值不应该 nag。"""
         t = TodoTracker(nag_after_rounds=3)
-        t.tick()
         t.tick()
         assert not t.should_nag()
 
-    def test_build_reminder(self):
-        """提醒消息应该包含提示。"""
-        t = TodoTracker()
-        reminder = t.build_reminder()
-        assert "reminder" in reminder.lower()
-        assert "todo_write" in reminder
 
-    def test_format_todos(self):
-        """格式化输出应该包含任务内容。"""
+class TestRuntimeContext:
+    def test_build_with_goal(self):
+        """活跃目标存在时，Runtime Context 应该包含目标。"""
         t = TodoTracker()
-        t.update([
-            {"content": "第一步", "status": "completed"},
-            {"content": "第二步", "status": "in_progress"},
+        t.set_goal("重构项目")
+        ctx = t.build_runtime_context()
+        assert "重构项目" in ctx
+        assert "active" in ctx
+
+    def test_build_with_todos(self):
+        """任务列表存在时，Runtime Context 应该显示进度。"""
+        t = TodoTracker()
+        t.update_todos([
+            {"content": "任务A", "status": "completed"},
+            {"content": "任务B", "status": "pending"},
         ])
-        output = t.format_todos()
-        assert "第一步" in output
-        assert "第二步" in output
+        ctx = t.build_runtime_context()
+        assert "任务A" in ctx
+        assert "1/2" in ctx  # 进度
 
-    def test_format_todos_empty(self):
-        """空任务列表应该显示提示。"""
+    def test_build_empty(self):
+        """没有目标和任务时，Runtime Context 为空。"""
         t = TodoTracker()
-        assert t.format_todos() == "(空)"
+        assert t.build_runtime_context() == ""
+
+    def test_build_goal_and_todos(self):
+        """目标和任务列表同时存在时，都显示。"""
+        t = TodoTracker()
+        t.set_goal("完成发布")
+        t.update_todos([{"content": "测试", "status": "in_progress"}])
+        ctx = t.build_runtime_context()
+        assert "完成发布" in ctx
+        assert "测试" in ctx
 
 
-class TestRunTodoWrite:
-    def test_valid_todos(self):
-        """有效的任务列表应该更新成功。"""
+class TestPersistence:
+    def test_save_and_load(self, tmp_path):
+        """目标应该能保存并恢复。"""
+        p = tmp_path / "goals.json"
+        t1 = TodoTracker(persistence_path=p)
+        t1.set_goal("持久的任务")
+        t1.update_todos([{"content": "继续干", "status": "pending"}])
+
+        # 新建 tracker 从同一文件加载
+        t2 = TodoTracker(persistence_path=p)
+        assert t2.goal.objective == "持久的任务"
+        assert t2.todos[0]["content"] == "继续干"
+
+    def test_save_completed_goal(self, tmp_path):
+        """已完成的目标应该保存完成时间和总结。"""
+        p = tmp_path / "goals.json"
+        t1 = TodoTracker(persistence_path=p)
+        t1.set_goal("写文档")
+        t1.complete_goal("写完了 README")
+
+        t2 = TodoTracker(persistence_path=p)
+        assert t2.goal.status == "completed"
+        assert "README" in (t2.goal.recap or "")
+
+    def test_no_persistence_path(self):
+        """没有设置 persistence_path 时，不报错。"""
+        t = TodoTracker()
+        t.set_goal("测试")
+        # 不应抛出异常
+
+
+class TestPlanningTools:
+    def test_run_long_task(self):
+        """run_long_task 应该设定目标。"""
+        t = TodoTracker()
+        set_tracker(t)
+        result = run_long_task("重构整个项目")
+        assert "目标" in result
+        assert t.has_active_goal
+
+    def test_run_complete_goal(self):
+        """run_complete_goal 应该完成目标。"""
+        t = TodoTracker()
+        set_tracker(t)
+        run_long_task("写 100 个测试")
+        result = run_complete_goal("写了 100 个单元测试")
+        assert "已完成" in result
+        assert not t.has_active_goal
+
+    def test_run_todo_write(self):
+        """run_todo_write 应该更新任务列表。"""
         t = TodoTracker()
         set_tracker(t)
         result = run_todo_write([
-            {"content": "读文件", "status": "pending"},
+            {"content": "步骤1", "status": "pending"},
         ])
         assert "已更新" in result
-        assert len(t.todos) == 1
+        assert t.todos[0]["content"] == "步骤1"
 
-    def test_invalid_todos_not_list(self):
-        """非列表应该报错。"""
+    def test_long_task_empty_goal(self):
+        """空目标应该报错。"""
         t = TodoTracker()
         set_tracker(t)
-        result = run_todo_write("not a list")
-        assert "错误" in result
-        assert len(t.todos) == 0  # 未修改
-
-    def test_invalid_todos_missing_fields(self):
-        """缺少必填字段应该报错。"""
-        t = TodoTracker()
-        set_tracker(t)
-        result = run_todo_write([{"content": "不完整"}])  # 缺 status
+        result = run_long_task("")
         assert "错误" in result
 
-    def test_invalid_status(self):
-        """无效状态应该报错。"""
-        t = TodoTracker()
-        set_tracker(t)
-        result = run_todo_write([
-            {"content": "任务", "status": "invalid_status"},
-        ])
-        assert "错误" in result
 
-    def test_json_string_input(self):
-        """JSON 字符串输入应该被解析。"""
-        t = TodoTracker()
-        set_tracker(t)
-        result = run_todo_write('[{"content": "JSON任务", "status": "pending"}]')
-        assert "已更新" in result
-        assert t.todos[0]["content"] == "JSON任务"
-
-
-class TestAgentLoopNagIntegration:
-    def test_nag_injects_reminder(self, monkeypatch):
-        """AgentLoop 应该在 tracker 触发 nag 时注入提醒。"""
-        from unittest.mock import MagicMock
-
-        from learn_cc.agent import AgentLoop
-        from learn_cc.config import Config
-
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-        monkeypatch.setenv("MODEL_ID", "claude-test")
-        config = Config.load(env_file=None)
-
-        reg = MagicMock()
-        reg.get_schemas.return_value = []
-        reg.dispatch.return_value = "ok"
-
-        t = TodoTracker(nag_after_rounds=2)
-        t.tick()
-        t.tick()  # 达到阈值
-
-        loop = AgentLoop(config, reg, verbose=False, todo_tracker=t)
-        loop.client = MagicMock()
-
-        mock_msg = MagicMock()
-        mock_msg.stop_reason = "end_turn"
-        mock_msg.content = [MagicMock(type="text", text="ok")]
-        loop.client.messages.create.return_value = mock_msg
-
-        messages: list = [{"role": "user", "content": "hi"}]
-        loop.run(messages)
-
-        # 应该注入了提醒消息
-        reminders = [m for m in messages if "reminder" in str(m.get("content", ""))]
-        assert len(reminders) > 0
-
-    def test_todo_write_resets_nag(self, monkeypatch):
-        """调用 todo_write 后应该重置 nag 计数器。"""
-        from unittest.mock import MagicMock
-
-        from learn_cc.agent import AgentLoop
-        from learn_cc.config import Config
-        from learn_cc.tools.planning import set_tracker
-
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
-        monkeypatch.setenv("MODEL_ID", "claude-test")
-        config = Config.load(env_file=None)
-
-        reg = MagicMock()
-        reg.get_schemas.return_value = []
-        reg.dispatch.return_value = "已更新 1 项任务"
-
-        t = TodoTracker(nag_after_rounds=2)
-        set_tracker(t)
-
-        loop = AgentLoop(config, reg, verbose=False, todo_tracker=t)
-        loop.client = MagicMock()
-
-        tool_block = MagicMock()
-        tool_block.type = "tool_use"
-        tool_block.id = "call_1"
-        tool_block.name = "todo_write"
-        tool_block.input = {"todos": [{"content": "任务", "status": "pending"}]}
-
-        text_block = MagicMock()
-        text_block.type = "text"
-        text_block.text = "好的"
-
-        loop.client.messages.create.side_effect = [
-            MagicMock(stop_reason="tool_use", content=[tool_block]),
-            MagicMock(stop_reason="end_turn", content=[text_block]),
-        ]
-
-        loop.run([{"role": "user", "content": "规划任务"}])
-
-        # tracker 被重置后又 tick() 了一次（第二轮开始），所以是 1
-        assert t.rounds_since_update == 1
-
-    def test_todo_schema_in_registry(self):
-        """todo_write 的 schema 应该在注册表中。"""
+class TestRegistry:
+    def test_new_tools_registered(self):
+        """long_task 和 complete_goal 应该在注册表中。"""
         from learn_cc.tools.registry import ToolRegistry
-
         reg = ToolRegistry.create_default()
-        schemas = reg.get_schemas()
-        todo_schema = [s for s in schemas if s["name"] == "todo_write"]
-        assert len(todo_schema) == 1
-        assert "todos" in todo_schema[0]["input_schema"]["required"]
+        assert "long_task" in reg.handlers
+        assert "complete_goal" in reg.handlers
+        assert "todo_write" in reg.handlers

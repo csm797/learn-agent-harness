@@ -85,6 +85,14 @@ class AgentLoop:
             messages: 消息历史列表（会被原地修改）。
         """
         while True:
+            # Runtime Context 注入：如果存在活跃目标，让 AI 每轮都看到
+            if self.todo_tracker is not None:
+                runtime_ctx = self.todo_tracker.build_runtime_context()
+                if runtime_ctx:
+                    if self.verbose:
+                        print(f"\033[90m[runtime] 注入目标上下文\033[0m")
+                    messages.append({"role": "user", "content": runtime_ctx})
+
             # Nag 提醒：如果 AI 太久没更新任务列表，注入提醒
             if self.todo_tracker is not None and self.todo_tracker.should_nag():
                 reminder = self.todo_tracker.build_reminder()

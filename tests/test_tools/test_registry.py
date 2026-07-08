@@ -12,7 +12,8 @@ class TestToolRegistry:
     def test_create_default_has_all_tools(self):
         """create_default 应该注册所有内置工具。"""
         registry = ToolRegistry.create_default()
-        expected = {"bash", "read_file", "write_file", "edit_file", "glob", "todo_write"}
+        expected = {"bash", "read_file", "write_file", "edit_file", "glob",
+                     "long_task", "complete_goal", "todo_write"}
         assert set(registry.handlers.keys()) == expected
 
     def test_get_schemas_only_registered(self):
